@@ -4,14 +4,18 @@ cpulimit
 This project is cpulimit original project forked and patched for vm cpu resource control
 Original CPULimit Project : http://cpulimit.sourceforge.net/
 
-* Change Log
- - Daemonization
- - Detecting Multi CPU Limit working about same process
+* Patch Log
+ - Support Daemonization
+ - Support Detecting Multi CPU Limit working about same process
  - Support SysLog
+ - Support make a full static binary for use on the multi platform
+ - Support Some feature control command line options
  - Patched Hurge kernel time issue
  - Patched minor bug and issue
- - Support full static binary compile
-
 
 * Tested
  - Some hosting service using this for cpulimit to high load kvm processing in vm hosting
+
+* Requirement
+ - gcc
+* How to Use
