@@ -19,7 +19,7 @@ See the this project based on CPULimit Project : http://cpulimit.sourceforge.net
  - Patched minor bug and issue
 
 * Tested
- - Some hosting service using this for cpulimit to high load kvm processing in vm hosting
+ - Some hosting service using this for cpu usage limitation to high load kvm processor in vm hosting servers
  - CentOS(RHEL) 2 or higher
 
 * Requirement
