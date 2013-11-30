@@ -2,8 +2,13 @@ cpulimit
 ========
 
 This project is cpulimit original project forked and patched for vm cpu resource control
-Original CPULimit Project : http://cpulimit.sourceforge.net/
+See the this project based on CPULimit Project : http://cpulimit.sourceforge.net/
 
+* How to Work
+ - Monitoring Target process usage cpu resource (kernel time)
+ - if target process cpu usage is 100% over, "STOP" signal to target process
+ - if target process cpu usage is 100% under, "CONTINUE" signal to target process
+ 
 * Patch Log
  - Support Daemonization
  - Support Detecting Multi CPU Limit working about same process
@@ -15,7 +20,10 @@ Original CPULimit Project : http://cpulimit.sourceforge.net/
 
 * Tested
  - Some hosting service using this for cpulimit to high load kvm processing in vm hosting
+ - CentOS(RHEL) 2 or higher
 
 * Requirement
- - gcc
+ - 
+
 * How to Use
+ 
