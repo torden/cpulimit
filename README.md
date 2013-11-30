@@ -10,3 +10,7 @@ Original CPULimit Project : http://cpulimit.sourceforge.net/
 - Support SysLog
 - Patched Hurge kernel time issue
 - Patched minor bug and issue
+- Support full static binary compile
+
+* Tested
+- Some hosting service using this for cpulimit to high load kvm processing in vm hosting
