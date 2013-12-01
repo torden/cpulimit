@@ -7,11 +7,7 @@
  */
 
 /**
- * Patched : Torden Cho  <ioemen@gmail.com>
- * @(#)File:           $RCSfile: stderr.c,v $
- * @(#)Version:        $Revision: 8.29 $
- * @(#)Last changed:   $Date: 2008/06/02 13:00:00 $
- * @(#)Author(patched by torden <https://github.com/torden/> code): Torden Cho
+ * patched by torden <https://github.com/torden/> 
  */
 #include <getopt.h>
 #include <stdio.h>
