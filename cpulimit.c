@@ -96,6 +96,18 @@ unsigned short isLivePID(unsigned int ckpid) {
     }
 }
 
+short checkPid(unsigned int ckpid) {
+
+    static char buf[128];
+    sprintf(buf,"/proc/%d/stat",ckpid);
+
+    if(-1 != access(buf, F_OK)) {
+        return 1; 
+    } else {
+        return 0;
+    }
+}
+
 void checkExistsRunOnSem(void) {
 
     int cpulimitPid = 0;
@@ -108,6 +120,12 @@ void checkExistsRunOnSem(void) {
             exit(1);
         }
 
+        if(0 < cpulimitPid && 0 == checkPid(cpulimitPid)) {       
+            sem_close(duplCheckSem);
+            sem_unlink(psemName);
+            return;
+        }
+
         if(0 < cpulimitPid && 1 == force) {
             if(0 != kill(cpulimitPid, SIGKILL)) {
                 fprintf(stdout, "System failure, Can not running with force mode, target pid : %d\n", cpulimitPid);
@@ -117,7 +135,7 @@ void checkExistsRunOnSem(void) {
                 sem_unlink(psemName);
             }
         } else {
-            fprintf(stdout, "Another CPULimit daemon working.. (PID:%d), please first check it\n", cpulimitPid);
+            fprintf(stdout, "Another CPULimit daemon working.. (PID:%d), please first check it(1)\n", cpulimitPid);
             exit(1);
         }
     } else {
@@ -132,7 +150,7 @@ void setRunOnSem(void) {
     duplCheckSem = sem_open(psemName, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, pid_me);
     if(SEM_FAILED == duplCheckSem) {
         if(EEXIST == errno) {
-            fprintf(stdout, "Another CPULimit daemon working.. (PID:%d), please first check it\n", cpulimitPid);
+            fprintf(stdout, "Another CPULimit daemon working.. (PID:%d), please first check it(2)\n", cpulimitPid);
             exit(1);
         } else {
             fprintf(stdout, "System failure, Can not running with force mode\n");
@@ -156,7 +174,7 @@ void setDaemonize() {
     }
 
     close(0);
-    //close(1);
+    close(1);
     close(2);
     setsid();
 
@@ -734,12 +752,11 @@ wait_for_process:
     int i=0;
 
     struct timespec startwork,endwork;
-    long workingtime=0;             //last working time in microseconds
+    long workingtime=0; //last working time in microseconds
 
     if (verbose) print_caption();
 
     float pcpu_avg=0;
-
 
     //here we should already have high priority, for time precision
     while(1) {
@@ -761,11 +778,9 @@ wait_for_process:
         //adjust work and sleep time slices
         if (pcpu>0) {
             twork.tv_nsec=min(period*limit*1000/pcpu*workingrate,period*1000);
-        }
-        else if (pcpu==0) {
+        } else if (pcpu==0) {
             twork.tv_nsec=period*1000;
-        }
-        else if (pcpu==-1) {
+        } else if (pcpu==-1) {
             //not yet a valid idea of cpu usage
             pcpu=limit;
             workingrate=limit;
