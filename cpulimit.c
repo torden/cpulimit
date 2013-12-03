@@ -209,7 +209,7 @@ LOG_DEBUG   7   debug-level messages
 
         snprintf(pmsgbuf, 8088, "%s\n", pmsgbody);
 
-        syslog(logtype, pmsgbuf);
+        syslog(logtype, pmsgbuf, NULL);
         closelog();
     }
 }
@@ -451,7 +451,12 @@ long getjiffies(int pid) {
         setLogging("Can not open /proc/%d/stat", pid);
         return -1;
     }
-    fgets(buffer,sizeof(buffer),f);
+
+    if(fgets(buffer,sizeof(buffer),f) == NULL) {
+        setLogging("Can not read /proc/%d/stat", pid);
+        return -1;
+    }
+
     fclose(f);
     char *p=buffer;
     p=memchr(p+1,')',sizeof(buffer)-(p-buffer));
@@ -551,11 +556,11 @@ void print_usage(FILE *stream,int exit_code) {
     fprintf(stream, "Usage: %s TARGET [OPTIONS...]\n",program_name);
     fprintf(stream, "   TARGET must be exactly one of these:\n");
     fprintf(stream, "      -p, --pid=N        pid of the process\n");
+    fprintf(stream, "      -L, --logpath      logfile path\n");
+    fprintf(stream, "      -l, --limit=N      percentage of cpu allowed from 0 to 100 (mandatory)\n");
+    fprintf(stream, "   OPTIONS\n");
     fprintf(stream, "      -e, --exe=FILE     name of the executable program file\n");
     fprintf(stream, "      -P, --path=PATH    absolute path name of the executable program file\n");
-    fprintf(stream, "      -L, --logpath      logfile path\n");
-    fprintf(stream, "   OPTIONS\n");
-    fprintf(stream, "      -l, --limit=N      percentage of cpu allowed from 0 to 100 (mandatory)\n");
     fprintf(stream, "      -v, --verbose      show control statistics\n");
     fprintf(stream, "      -z, --lazy         exit if there is no suitable target process, or if it dies\n");
     fprintf(stream, "      -h, --help         display this help and exit\n");
