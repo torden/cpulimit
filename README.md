@@ -133,3 +133,4 @@ Another CPULimit daemon working.. (PID:1825), please first check it(1)
 ---
 
 Moved from bitbucket.org
+According to Original Project's License
