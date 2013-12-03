@@ -35,8 +35,8 @@ See the this project based on CPULimit Project : http://cpulimit.sourceforge.net
  
 ## Support Options
 
-Usage: cpulimit TARGET [OPTIONS...]
-   TARGET must be exactly one of these:
+> Usage: cpulimit TARGET [OPTIONS...]
+>    TARGET must be exactly one of these:
       -p, --pid=N        pid of the process
       -e, --exe=FILE     name of the executable program file
       -P, --path=PATH    absolute path name of the executable program file
