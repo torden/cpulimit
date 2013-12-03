@@ -1,0 +1,1377 @@
+--- cpulimit.c	2017-02-01 17:44:22.895753643 +0900
++++ org.cpulimit/cpulimit.c	2017-02-01 17:45:08.771976995 +0900
+@@ -1,831 +1,572 @@
+ /**
+- * below information are CPU Limit original copyright and header
+- * Author:  Angelo Marletta
+- * Date:    26/06/2005
+- * Version: 1.1
+- * Last version at: http://marlon80.interfree.it/cpulimit/index.html
++ *
++ * cpulimit - a cpu limiter for Linux
++ *
++ * Copyright (C) 2005-2008, by:  Angelo Marletta <marlonx80@hotmail.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++ *
++ **********************************************************************
++ *
++ * This is a simple program to limit the cpu usage of a process
++ * If you modify this code, send me a copy please
++ *
++ * Date:    30/8/2008
++ * Version: 1.2 beta
++ * Get the latest version at: http://cpulimit.sourceforge.net
++ *
++ * Changelog from 1.1:
++ * - reorganization of the code, splitted in more source files
++ * - cpu count detection, i.e. if you have 4 cpu, it is possible to limit up to 400%
++ * - in order to avoid deadlocks, cpulimit now prevents to limit itself
++ * - option --path eliminated, use --exe instead both for absolute path and file name
++ * - call setpriority() just once in limit_process()
++ * - no more segmentation fault when processes exit
++ * - no more memory corruption when processes exit
++ * - cpulimit exits if --lazy option is specified and the process terminates
++ * - target process can be created on-fly given command line
++ * - light and scalable algorithm for subprocesses detection and limitation
++ * - mac os support
++ * - minor enhancements and bugfixes
++ *
+  */
+ 
+-/**
+- * patched by torden <https://github.com/torden/> 
+- */
+ #include <getopt.h>
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <time.h>
+-#include <sys/time.h>
+ #include <unistd.h>
+-#include <sys/types.h>
+ #include <signal.h>
+-#include <sys/resource.h>
+ #include <string.h>
+ #include <dirent.h>
+ #include <errno.h>
+ #include <string.h>
+-#include <stdarg.h>
+-#include <syslog.h>
+-#include <errno.h>
+-#include <pwd.h>
+-#include <semaphore.h>
+-#include <fcntl.h>
+ #include <sys/stat.h>
++#include <sys/time.h>
++#include <sys/types.h>
++#include <sys/sysctl.h>
++#include <sys/resource.h>
++#include <sys/wait.h>
+ 
+-#define PGNAME "CPULimit"
+-#define VERSION "1.0.1-p1"
+-#define MUTI_RUN_DETECT_PREFIX_SEM_NAME "CPULIMIT"
+-
+-//kernel time resolution (inverse of one jiffy interval) in Hertz
+-//i don't know how to detect it, then define to the default (not very clean!)
+-#define HZ 100
++#include "process.h"
++#include "procutils.h"
++#include "list.h"
+ 
+ //some useful macro
+-#define min(a,b) (a<b?a:b)
+-#define max(a,b) (a>b?a:b)
+-
+-
+-//pid of the controlled process
+-unsigned int pid=0;
+-//executable file name
++#ifndef MIN
++#define MIN(a,b) (((a)<(b))?(a):(b))
++#endif
++#ifndef MAX
++#define MAX(a,b) (((a)>(b))?(a):(b))
++#endif
++
++//control time slot in microseconds
++//each slot is splitted in a working slice and a sleeping slice
++//TODO: make it adaptive, based on the actual system load
++#define TIME_SLOT 100000
++
++#define MAX_PRIORITY -10
++
++/* GLOBAL VARIABLES */
++
++//the "family"
++struct process_family pf;
++//pid of cpulimit
++pid_t cpulimit_pid;
++//name of this program (maybe cpulimit...)
+ char *program_name;
+-//verbose mode
+-unsigned short verbose=0;
+-//lazy mode
+-unsigned short lazy=0;
+-
+-//daemonize mode
+-unsigned short daemonize=0;
+-unsigned short daemond=0;
+-
+-//log file
+-FILE *pLogFileFD;
+-
+-//my forked pid
+-unsigned int pid_me;
+ 
+-//logfile path
+-const char *logpath=NULL;
+-
+-//run user information
+-struct passwd *run_userinfo;
+-
+-//check multi run
+-char semName[256] ={0x00,};
+-char *psemName = semName;
+-sem_t *duplCheckSem;
+-
+-//force mode
+-unsigned short force=0;
+-
+-//reverse byte search
+-void *memrchr(const void *s, int c, size_t n);
+-
+-//return ta-tb in microseconds (no overflow checks!)
+-inline long timediff(const struct timespec *ta,const struct timespec *tb) {
+-    unsigned long us = (ta->tv_sec-tb->tv_sec)*1000000 + (ta->tv_nsec/1000 - tb->tv_nsec/1000);
+-    return us;
+-}
+-
+-unsigned short isLivePID(unsigned int ckpid) {
+-
+-    if(0 == kill(ckpid, 0)) {
+-        return 1;
+-    } else if(ESRCH == errno) {
+-        return 0;
+-    } else {
+-        return 0;
+-    }
+-}
+-
+-short checkPid(unsigned int ckpid) {
+-
+-    static char buf[128];
+-    sprintf(buf,"/proc/%d/stat",ckpid);
+-
+-    if(-1 != access(buf, F_OK)) {
+-        return 1; 
+-    } else {
+-        return 0;
+-    }
+-}
+-
+-void checkExistsRunOnSem(void) {
+-
+-    int cpulimitPid = 0;
+-    snprintf(psemName, sizeof semName, "%s_%d", MUTI_RUN_DETECT_PREFIX_SEM_NAME, pid);
+-    duplCheckSem = sem_open(psemName, O_RDONLY);
+-    if(SEM_FAILED != duplCheckSem) {
+-        sem_getvalue(duplCheckSem, &cpulimitPid);
+-        if(0 == cpulimitPid) {
+-            fprintf(stdout, "System failure, Can not read named sem : %s\n", psemName);
+-            exit(1);
+-        }
+-
+-        if(0 < cpulimitPid && 0 == checkPid(cpulimitPid)) {       
+-            sem_close(duplCheckSem);
+-            sem_unlink(psemName);
+-            return;
+-        }
+-
+-        if(0 < cpulimitPid && 1 == force) {
+-            if(0 != kill(cpulimitPid, SIGKILL)) {
+-                fprintf(stdout, "System failure, Can not running with force mode, target pid : %d\n", cpulimitPid);
+-                exit(1);
+-            } else {
+-                sem_close(duplCheckSem);
+-                sem_unlink(psemName);
+-            }
+-        } else {
+-            fprintf(stdout, "Another CPULimit daemon working.. (PID:%d), please first check it(1)\n", cpulimitPid);
+-            exit(1);
+-        }
+-    } else {
+-        sem_close(duplCheckSem);
+-    }
+-}
++//number of cpu
++int NCPU;
+ 
+-void setRunOnSem(void) {
++/* CONFIGURATION VARIABLES */
+ 
+-    int cpulimitPid = 0;
+-    snprintf(psemName, sizeof semName, "%s_%d", MUTI_RUN_DETECT_PREFIX_SEM_NAME, pid);
+-    duplCheckSem = sem_open(psemName, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, pid_me);
+-    if(SEM_FAILED == duplCheckSem) {
+-        if(EEXIST == errno) {
+-            fprintf(stdout, "Another CPULimit daemon working.. (PID:%d), please first check it(2)\n", cpulimitPid);
+-            exit(1);
+-        } else {
+-            fprintf(stdout, "System failure, Can not running with force mode\n");
+-            exit(1);
+-        }
+-    }
+-}
+-
+-void destroyExstsRunOnSem(void) {
+-    sem_close(duplCheckSem);
+-    sem_unlink(psemName);
+-}
+-void setDaemonize() {
+-
+-    pid_t pidthis = fork();
+-
+-    if(0 > pidthis) {
+-        exit(0);
+-    } else if (pidthis!= 0) {
+-        exit(0);
+-    }
+-
+-    close(0);
+-    close(1);
+-    close(2);
+-    setsid();
+-
+-    daemond=1;
+-}
+-
+-void setSyslog(unsigned short logtype, const char *logfmt, ...) {
+-
+-/*
+-LOG_EMERG   0   system is unusable
+-LOG_ALERT   1   action must be taken immediately
+-LOG_CRIT    2   critical conditions
+-LOG_ERR     3   error conditions
+-LOG_WARNING 4   warning conditions
+-LOG_NOTICE  5   normal but significant condition
+-LOG_INFO    6   informational
+-LOG_DEBUG   7   debug-level messages
+-*/
+-    if(7 >= logtype) {
+-        openlog("cpulimit", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_USER);
+-
+-        char msgbuf[8088] = {0x00,};
+-        char *pmsgbuf = msgbuf;
+-
+-        char msgbody[7000] = {0x00,};
+-        char *pmsgbody = msgbody;
+-
+-        va_list args;
+-        va_start(args, logfmt);
+-        vsnprintf(pmsgbody, 7000, logfmt, args);
+-        va_end(args);
+-
+-        snprintf(pmsgbuf, 8088, "%s\n", pmsgbody);
+-
+-        syslog(logtype, pmsgbuf, NULL);
+-        closelog();
+-    }
+-}
+-
+-int setLogging(const char *logfmt, ... ) {
+-
+-    if(NULL == logpath) {
+-        return 1;
+-    }
+-
+-    time_t rawtime;
+-    struct tm * timeinfo;
+-    char msgbuf[8088];
+-    char *pmsgbuf;
+-
+-    pmsgbuf = msgbuf;
+-    memset(pmsgbuf, 0x00, 8088);
+-
+-    time ( &rawtime );
+-    timeinfo = localtime ( &rawtime );
+-
+-    //log filename
+-    char fn[30] = {0x00,};
+-    char *pfn= fn;
+-    strftime(pfn,30, "%Y-%m-%d-%H", timeinfo);
+-
+-    //logging time
+-    char tbuf[30] = {0x00,};
+-    char *ptbuf = tbuf;
+-    strftime(ptbuf,30, "%Y-%m-%d %H:%M:%S %Z", timeinfo);
+-
+-    //user logmessage
+-    char msgbody[7000] = {0x00,};
+-    char *pmsgbody = msgbody;
+-    va_list args;
+-    va_start(args, logfmt);
+-    vsnprintf(pmsgbody, 7000, logfmt, args);
+-    va_end(args);
+-
+-    //mergen full
+-    snprintf(pmsgbuf, 8088, "[%s] %s\n", ptbuf, pmsgbody);
+-
+-    pLogFileFD = fopen(logpath,"a");
+-    if(NULL == pLogFileFD) {
+-        setSyslog(LOG_ERR, "can not open logfile : %s", strerror(errno));
+-        return 0;
+-    }
+-
+-    size_t ret = fwrite(pmsgbuf, strlen(pmsgbuf), 1, pLogFileFD);
+-
+-    if(1 > ret) {
+-        setSyslog(LOG_ERR, "can not write msg to logfile : %s", strerror(errno));
+-        return 0;
+-    }
+-
+-    fclose(pLogFileFD);
+-    return 1;
+-}
+-
+-void setExit(int returCode) {
+-    if(1 == daemond) {
+-            kill(pid,SIGCONT);
+-    }
+-    setLogging("Exit.");
+-    setSyslog(LOG_INFO, "exit cpulimit : %d", (int)getpid());
+-    destroyExstsRunOnSem();
+-    exit(returCode);
+-}
+-
+-
+-int waitforpid(int pid) {
+-
+-    //switch to low priority
+-    if (setpriority(PRIO_PROCESS,getpid(),19)!=0) {
+-        setLogging("Warning: cannot renice");
+-    }
+-
+-    int i = 0;
+-
+-    while(1) {
+-
+-        DIR *dip;
+-        struct dirent *dit;
+-
+-        //open a directory stream to /proc directory
+-        if ((dip = opendir("/proc")) == NULL) {
+-            setSyslog(LOG_ERR, "can not open /proc directory : %s", strerror(errno));
+-            return -1;
+-        }
+-
+-        //read in from /proc and seek for process dirs
+-        while ((dit = readdir(dip)) != NULL) {
+-            //get pid
+-            if (pid==atoi(dit->d_name)) {
+-                //pid detected
+-                if (kill(pid,SIGSTOP)==0 &&  kill(pid,SIGCONT)==0) {
+-                    //process is ok!
+-                    goto done;
+-                } else {
+-                    setLogging("Error: Process %d detected, but you don't have permission to control it",pid);
+-                }
+-            }
+-        }
+-
+-        //close the dir stream and check for errors
+-        if (closedir(dip) == -1) {
+-            setSyslog(LOG_ERR, "can not close proc directory : %s", strerror(errno));
+-            return -1;
+-        }
+-
+-        //no suitable target found
+-        if (i++==0) {
+-            if (lazy) {
+-                setLogging("No process found");
+-                setExit(2);
+-            } else {
+-                setLogging("Warning: no target process found. Waiting for it...");
+-            }
+-        }
+-        //sleep for a while
+-        sleep(2);
+-    }
+-
+-done:
+-    //now set high priority, if possible
+-    if (setpriority(PRIO_PROCESS,getpid(),-20)!=0) {
+-        setLogging("Warning: cannot renice.\nTo work better you should run this program as root.");
+-    }
+-    return 0;
+-}
++//verbose mode
++int verbose = 0;
++//lazy mode (exits if there is no process)
++int lazy = 0;
++
++static void *memrchr(const void *s, int c, size_t n)
++{
++	const unsigned char *start = (const unsigned char*)s;
++	const unsigned char *end = (const unsigned char*)s;
++
++	end+=n-1;
++
++	while(end>=start) {
++		if(*end==c)
++			return (void *)end;
++		else
++			end--;
++	}
+ 
+-//this function periodically scans process list and looks for executable path names
+-//it should be executed in a low priority context, since precise timing does not matter
+-//if a process is found then its pid is returned
+-//process: the name of the wanted process, can be an absolute path name to the executable file
+-//         or simply its name
+-//return: pid of the found process
+-int getpidof(const char *process) {
+-
+-    //set low priority
+-    if (setpriority(PRIO_PROCESS,getpid(),19)!=0) {
+-        setLogging("Warning: cannot renice");
+-    }
+-
+-    char exelink[20];
+-    char exepath[PATH_MAX+1];
+-    unsigned short int pid=0;
+-    int i=0;
+-
+-    while(1) {
+-
+-        DIR *dip;
+-        struct dirent *dit;
+-
+-        //open a directory stream to /proc directory
+-        if ((dip = opendir("/proc")) == NULL) {
+-            setSyslog(LOG_ERR, "can not open proc directory : %s", strerror(errno));
+-            return -1;
+-        }
+-
+-        //read in from /proc and seek for process dirs
+-        while ((dit = readdir(dip)) != NULL) {
+-            //get pid
+-            pid=atoi(dit->d_name);
+-            if (pid>0) {
+-                sprintf(exelink,"/proc/%d/exe",pid);
+-                unsigned int size=readlink(exelink,exepath,sizeof(exepath));
+-                if (size>0) {
+-                    int found=0;
+-                    if (process[0]=='/' && strncmp(exepath,process,size)==0 && size==strlen(process)) {
+-                        //process starts with / then it's an absolute path
+-                        found=1;
+-                    }
+-                    else {
+-                        //process is the name of the executable file
+-                        if (strncmp(exepath+size-strlen(process),process,strlen(process))==0) {
+-                            found=1;
+-                        }
+-                    }
+-                    if (found==1) {
+-                        if (kill(pid,SIGSTOP)==0 &&  kill(pid,SIGCONT)==0) {
+-                            //process is ok!
+-                            goto done;
+-                        } else {
+-                            setLogging("Error: Process %d detected, but you don't have permission to control it",pid);
+-                        }
+-                    }
+-                }
+-            }
+-        }
+-
+-        //close the dir stream and check for errors
+-        if (closedir(dip) == -1) {
+-            setSyslog(LOG_ERR, "can not close proc directory : %s", strerror(errno));
+-            return -1;
+-        }
+-
+-        //no suitable target found
+-        if (i++==0) {
+-            if (lazy) {
+-                setLogging("No process found");
+-                setExit(2);
+-            } else {
+-                setLogging("Warning: no target process found. Waiting for it...");
+-            }
+-        }
+-
+-        //sleep for a while
+-        sleep(2);
+-    }
+-
+-done:
+-    setLogging("Process %d detected",pid);
+-    //now set high priority, if possible
+-    if (setpriority(PRIO_PROCESS,getpid(),-20)!=0) {
+-        setLogging("Warning: cannot renice.\nTo work better you should run this program as root.");
+-    }
+-    return pid;
++	return NULL;
+ }
+ 
+ //SIGINT and SIGTERM signal handler
+-void setQuit(int sig) {
+-
+-    //let the process continue if it's stopped
+-    kill(pid,SIGCONT);
+-    setLogging("Exit. Signal : %d", sig);
+-    setSyslog(LOG_INFO, "exit cpulimit : %d", (int)getpid());
+-    destroyExstsRunOnSem();
+-    exit(0);
+-}
+-
+-//get jiffies count from /proc filesystem
+-long getjiffies(int pid) {
+-    static char stat[20];
+-    static char buffer[1024];
+-    sprintf(stat,"/proc/%d/stat",pid);
+-    FILE *f=fopen(stat,"r");
+-    if (f==NULL) {
+-        setLogging("Can not open /proc/%d/stat", pid);
+-        return -1;
+-    }
+-
+-    if(fgets(buffer,sizeof(buffer),f) == NULL) {
+-        setLogging("Can not read /proc/%d/stat", pid);
+-        return -1;
+-    }
+-
+-    fclose(f);
+-    char *p=buffer;
+-    p=memchr(p+1,')',sizeof(buffer)-(p-buffer));
+-
+-    int sp=12;
+-    while (sp--)
+-            p=memchr(p+1,' ',sizeof(buffer)-(p-buffer));
+-    //user mode jiffies
+-    long utime=atol(p+1);
+-    p=memchr(p+1,' ',sizeof(buffer)-(p-buffer));
+-    //kernel mode jiffies
+-    long ktime=atol(p+1);
+-    return utime+ktime;
+-}
+-
+-//process instant photo
+-struct process_screenshot {
+-    struct timespec when;   //timestamp
+-    long jiffies;   //jiffies count of the process
+-    int cputime;    //microseconds of work from previous screenshot to current
+-};
+-
+-//extracted process statistics
+-struct cpu_usage {
+-    float pcpu;
+-    float workingrate;
+-};
+-
+-//this function is an autonomous dynamic system
+-//it works with static variables (state variables of the system), that keep memory of recent past
+-//its aim is to estimate the cpu usage of the process
+-//to work properly it should be called in a fixed periodic way
+-//perhaps i will put it in a separate thread...
+-int compute_cpu_usage(int pid,int last_working_quantum,struct cpu_usage *pusage) {
+-    #define MEM_ORDER 10
+-    //circular buffer containing last MEM_ORDER process screenshots
+-    static struct process_screenshot ps[MEM_ORDER];
+-    //the last screenshot recorded in the buffer
+-    static int front=-1;
+-    //the oldest screenshot recorded in the buffer
+-    static int tail=0;
+-
+-    if (pusage==NULL) {
+-        //reinit static variables
+-        front=-1;
+-        tail=0;
+-        return 0;
+-    }
+-
+-    //let's advance front index and save the screenshot
+-    front=(front+1)%MEM_ORDER;
+-    long j=getjiffies(pid);
+-    if (j>=0) {
+-        ps[front].jiffies=j;
+-    } else {
+-        setLogging("Can not Get jifeeies %d" , pid);
+-        return -1;      //error: pid does not exist
+-    }
+-    clock_gettime(CLOCK_REALTIME,&(ps[front].when));
+-    ps[front].cputime=last_working_quantum;
+-
+-    //buffer actual size is: (front-tail+MEM_ORDER)%MEM_ORDER+1
+-    int size=(front-tail+MEM_ORDER)%MEM_ORDER+1;
+-
+-    if (size==1) {
+-        //not enough samples taken (it's the first one!), return -1
+-        pusage->pcpu=-1;
+-        pusage->workingrate=1;
+-        return 0;
+-    } else {
+-        //now we can calculate cpu usage, interval dt and dtwork are expressed in microseconds
+-        long dt=timediff(&(ps[front].when),&(ps[tail].when));
+-        long dtwork=0;
+-        int i=(tail+1)%MEM_ORDER;
+-        int max=(front+1)%MEM_ORDER;
+-        do {
+-            dtwork+=ps[i].cputime;
+-            i=(i+1)%MEM_ORDER;
+-        } while (i!=max);
+-        long used=ps[front].jiffies-ps[tail].jiffies;
+-        float usage=(used*1000000.0/HZ)/dtwork;
+-        pusage->workingrate=1.0*dtwork/dt;
+-        pusage->pcpu=usage*pusage->workingrate;
+-        if (size==MEM_ORDER)
+-            tail=(tail+1)%MEM_ORDER;
+-        return 0;
+-    }
+-    #undef MEM_ORDER
+-}
+-
+-void print_caption() {
+-    setLogging("%%CPU\twork quantum\tsleep quantum\tactive rate");
+-}
+-
+-void print_usage(FILE *stream,int exit_code) {
+-
+-    fprintf(stream, "Usage: %s TARGET [OPTIONS...]\n",program_name);
+-    fprintf(stream, "   TARGET must be exactly one of these:\n");
+-    fprintf(stream, "      -p, --pid=N        pid of the process\n");
+-    fprintf(stream, "      -L, --logpath      logfile path\n");
+-    fprintf(stream, "      -l, --limit=N      percentage of cpu allowed from 0 to 100 (mandatory)\n");
+-    fprintf(stream, "   OPTIONS\n");
+-    fprintf(stream, "      -e, --exe=FILE     name of the executable program file\n");
+-    fprintf(stream, "      -P, --path=PATH    absolute path name of the executable program file\n");
+-    fprintf(stream, "      -v, --verbose      show control statistics\n");
+-    fprintf(stream, "      -z, --lazy         exit if there is no suitable target process, or if it dies\n");
+-    fprintf(stream, "      -h, --help         display this help and exit\n");
+-    fprintf(stream, "      -d, --daemonize    damonization\n");
+-    fprintf(stream, "      -f, --fore         force run, killing prevent process with forcing muti run lock\n");
+-    exit(exit_code);
++static void quit(int sig)
++{
++	//let all the processes continue if stopped
++	struct list_node *node = NULL;
++	for (node=pf.members.first; node!= NULL; node=node->next) {
++		struct process *p = (struct process*)(node->data);
++		kill(p->pid, SIGCONT);
++		process_close(p);
++	}
++	//free all the memory
++	cleanup_process_family(&pf);
++	//fix ^C little problem
++	printf("\r");
++	fflush(stdout);
++	exit(0);
++}
++
++//return t1-t2 in microseconds (no overflow checks, so better watch out!)
++static inline unsigned long timediff(const struct timeval *t1,const struct timeval *t2)
++{
++	return (t1->tv_sec - t2->tv_sec) * 1000000 + (t1->tv_usec - t2->tv_usec);
++}
++
++static void print_usage(FILE *stream, int exit_code)
++{
++	fprintf(stream, "Usage: %s [OPTIONS...] TARGET\n", program_name);
++	fprintf(stream, "   OPTIONS\n");
++	fprintf(stream, "      -l, --limit=N          percentage of cpu allowed from 0 to %d (required)\n", 100*NCPU);
++	fprintf(stream, "      -v, --verbose          show control statistics\n");
++	fprintf(stream, "      -z, --lazy             exit if there is no target process, or if it dies\n");
++	fprintf(stream, "      -i, --ignore-children  don't limit children processes\n");
++	fprintf(stream, "      -h, --help             display this help and exit\n");
++	fprintf(stream, "   TARGET must be exactly one of these:\n");
++	fprintf(stream, "      -p, --pid=N            pid of the process (implies -z)\n");
++	fprintf(stream, "      -e, --exe=FILE         name of the executable program file or path name\n");
++	fprintf(stream, "      COMMAND [ARGS]         run this command and limit it (implies -z)\n");
++	fprintf(stream, "\nReport bugs to <marlonx80@hotmail.com>.\n");
++	exit(exit_code);
++}
++
++static void increase_priority() {
++	//find the best available nice value
++	int old_priority = getpriority(PRIO_PROCESS, 0);
++	int priority = old_priority;
++	while (setpriority(PRIO_PROCESS, 0, priority-1) == 0 && priority>MAX_PRIORITY) {
++		priority--;	
++	}
++	if (priority != old_priority) {
++		if (verbose) printf("Priority changed to %d\n", priority);
++	}
++	else {
++		if (verbose) printf("Warning: Cannot change priority. Run as root or renice for best results.\n");
++	}
++}
++
++/* Get the number of CPUs */
++static int get_ncpu() {
++	int ncpu = -1;
++#ifdef _SC_NPROCESSORS_ONLN
++	ncpu = sysconf(_SC_NPROCESSORS_ONLN);
++#elif defined __APPLE__
++	int mib[2] = {CTL_HW, HW_NCPU};
++	size_t len = sizeof(ncpu);
++	sysctl(mib, 2, &ncpu, &len, NULL, 0);
++#endif
++	return ncpu;
++}
++
++#ifdef __linux__
++
++#include <sys/vfs.h>
++
++static int check_proc()
++{
++	struct statfs mnt;
++	if (statfs("/proc", &mnt) < 0)
++		return 0;
++	if (mnt.f_type!=0x9fa0)
++		return 0;
++	return 1;
++}
++#endif
++
++void limit_process(pid_t pid, double limit, int ignore_children)
++{
++	//slice of the slot in which the process is allowed to run
++	struct timespec twork;
++	//slice of the slot in which the process is stopped
++	struct timespec tsleep;
++	//when the last twork has started
++	struct timeval startwork;
++	//when the last twork has finished
++	struct timeval endwork;
++	//initialization
++	memset(&twork, 0, sizeof(struct timespec));
++	memset(&tsleep, 0, sizeof(struct timespec));
++	memset(&startwork, 0, sizeof(struct timeval));
++	memset(&endwork, 0, sizeof(struct timeval));	
++	//last working time in microseconds
++	unsigned long workingtime = 0;
++	//generic list item
++	struct list_node *node;
++	//counter
++	int c = 0;
++
++	//get a better priority
++	increase_priority();
++	
++	//build the family
++	create_process_family(&pf, pid);
++	if (ignore_children) {
++		//delete any process with a different pid than the father
++		for (node=pf.members.first; node!=NULL; node=node->next) {
++			struct process *proc = (struct process*)(node->data);
++			if (proc->pid != pid)
++				remove_process_from_family(&pf, proc->pid);
++		}
++	}
++	
++	if (!ignore_children && verbose) printf("Members in the family owned by %d: %d\n", pf.father, pf.members.count);
++
++	//rate at which we are keeping active the processes (range 0-1)
++	//1 means that the process are using all the twork slice
++	double workingrate = -1;
++	while(1) {
++		if (!ignore_children && c%10==0) {
++			//update the process family (checks only for new members)
++			int new_children = update_process_family(&pf);
++			if (verbose && new_children) {
++				printf("%d new children processes detected (", new_children);
++				int j;
++				node = pf.members.last;
++				for (j=0; j<new_children; j++) {
++					printf("%d", ((struct process*)(node->data))->pid);
++					if (j<new_children-1) printf(" ");
++					node = node->previous;
++				}
++				printf(")\n");
++			}
++		}
++
++		if (pf.members.count==0) {
++			if (verbose) printf("No more processes.\n");
++			break;
++		}
++		
++		//total cpu actual usage (range 0-1)
++		//1 means that the processes are using 100% cpu
++		double pcpu = -1;
++
++		//estimate how much the controlled processes are using the cpu in the working interval
++		for (node=pf.members.first; node!=NULL; node=node->next) {
++			struct process *proc = (struct process*)(node->data);
++			if (proc->is_zombie) {
++				//process is zombie, remove it from family
++				fprintf(stderr,"Process %d is zombie!\n", proc->pid);
++				remove_process_from_family(&pf, proc->pid);
++				continue;
++			}
++			if (process_monitor(proc) != 0) {
++				//process is dead, remove it from family
++				if (verbose) fprintf(stderr,"Process %d dead!\n", proc->pid);
++				remove_process_from_family(&pf, proc->pid);
++				continue;
++			}
++			if (proc->cpu_usage<0) {
++				continue;
++			}
++			if (pcpu<0) pcpu = 0;
++			pcpu += proc->cpu_usage;
++		}
++
++		//adjust work and sleep time slices
++		if (pcpu < 0) {
++			//it's the 1st cycle, initialize workingrate
++			pcpu = limit;
++			workingrate = limit;
++			twork.tv_nsec = TIME_SLOT*limit*1000;
++		}
++		else {
++			//adjust workingrate
++			workingrate = MIN(workingrate / pcpu * limit, 1);
++			twork.tv_nsec = TIME_SLOT*1000*workingrate;
++		}
++		tsleep.tv_nsec = TIME_SLOT*1000-twork.tv_nsec;
++
++		if (verbose) {
++			if (c%200==0)
++				printf("\n%%CPU\twork quantum\tsleep quantum\tactive rate\n");
++			if (c%10==0 && c>0)
++				printf("%0.2lf%%\t%6ld us\t%6ld us\t%0.2lf%%\n",pcpu*100,twork.tv_nsec/1000,tsleep.tv_nsec/1000,workingrate*100);
++		}
++
++		//resume processes
++		for (node=pf.members.first; node!=NULL; node=node->next) {
++			struct process *proc = (struct process*)(node->data);
++			if (kill(proc->pid,SIGCONT)!=0) {
++				//process is dead, remove it from family
++				if (verbose) fprintf(stderr,"Process %d dead!\n", proc->pid);
++				remove_process_from_family(&pf, proc->pid);
++			}
++		}
++
++		//now processes are free to run (same working slice for all)
++		gettimeofday(&startwork, NULL);
++		nanosleep(&twork,NULL);
++		gettimeofday(&endwork, NULL);
++		workingtime = timediff(&endwork,&startwork);
++		
++		long delay = workingtime-twork.tv_nsec/1000;
++		if (c>0 && delay>10000) {
++			//delay is too much! signal to user?
++			//fprintf(stderr, "%d %ld us\n", c, delay);
++		}
++
++		if (tsleep.tv_nsec>0) {
++			//stop only if tsleep>0, instead it's useless
++			for (node=pf.members.first; node!=NULL; node=node->next) {
++				struct process *proc = (struct process*)(node->data);
++				if (kill(proc->pid,SIGSTOP)!=0) {
++					//process is dead, remove it from family
++					if (verbose) fprintf(stderr,"Process %d dead!\n", proc->pid);
++					remove_process_from_family(&pf, proc->pid);
++				}
++			}
++			//now the processes are sleeping
++			nanosleep(&tsleep,NULL);
++		}
++		c++;
++	}
++	cleanup_process_family(&pf);
+ }
+ 
+ int main(int argc, char **argv) {
+-
+-    //get program name
+-    char *p=(char*)memrchr(argv[0],(unsigned int)'/',strlen(argv[0]));
+-    program_name = p==NULL?argv[0]:(p+1);
+-
+-    // check pertmit on run user
+-    run_userinfo = getpwuid(getuid());
+-    if(NULL == run_userinfo) {
+-        fprintf(stderr, "%s can not get run user information\n", program_name);
+-        exit(1);
+-    }
+-
+-    if(0 != (int)run_userinfo->pw_uid) {
+-        fprintf(stderr, "%s need to root pertmit, please run via sudo or root user\n", program_name);
+-        exit(1);
+-    }
+-
+-    //parse arguments
+-    int next_option;
+-    /* A string listing valid short options letters. */
+-    const char* short_options="p:e:P:l:vzhdL:f";
+-    /* An array describing valid long options. */
+-    const struct option long_options[] = {
+-        { "pid", 0, NULL, 'p' },
+-        { "exe", 1, NULL, 'e' },
+-        { "path", 0, NULL, 'P' },
+-        { "limit", 0, NULL, 'l' },
+-        { "verbose", 0, NULL, 'v' },
+-        { "lazy", 0, NULL, 'z' },
+-        { "help", 0, NULL, 'h' },
+-        { "daemonize", 0, NULL, 'd' },
+-        { "logpath", 0, NULL, 'L' },
+-        { "force", 0, NULL, 'f' },
+-        { NULL, 0, NULL, 0 }
+-    };
+-
+-    //argument variables
+-    const char *exe=NULL;
+-    const char *path=NULL;
+-    unsigned short perclimit=0;
+-    unsigned short pid_ok=0;
+-    unsigned short process_ok=0;
+-    unsigned short limit_ok=0;
+-    unsigned short logpath_ok=0;
+-
+-    do {
+-        next_option = getopt_long (argc, argv, short_options,long_options, NULL);
+-
+-        switch(next_option) {
+-            case 'p':
+-                pid=atoi(optarg);
+-                pid_ok=1;
+-                break;
+-            case 'e':
+-                exe=optarg;
+-                process_ok=1;
+-                break;
+-            case 'P':
+-                path=optarg;
+-                process_ok=1;
+-                break;
+-            case 'l':
+-                perclimit=atoi(optarg);
+-                limit_ok=1;
+-                break;
+-            case 'v':
+-                verbose=1;
+-                break;
+-            case 'z':
+-                lazy=1;
+-                break;
+-            case 'd':
+-                daemonize=1;
+-                break;
+-            case 'L':
+-                logpath=optarg;
+-                logpath_ok=1;
+-                break;
+-            case 'f':
+-                force=1;
+-                break;
+-            case 'h':
+-                print_usage (stdout, 1);
+-                break;
+-            case '?':
+-                print_usage (stdout, 1);
+-                break;
+-            case -1:
+-                break;
+-            default:
+-                abort();
+-        }
+-
+-    } while(next_option != -1);
+-
+-    if (!process_ok && !pid_ok) {
+-       printf("Error: You must specify a target process\n");
+-       print_usage (stderr, 1);
+-       exit(1);
+-    }
+-    if ((exe!=NULL && path!=NULL) || (pid_ok && (exe!=NULL || path!=NULL))) {
+-       printf("Error: You must specify exactly one target process\n");
+-       print_usage (stderr, 1);
+-       exit(1);
+-    }
+-    if (!limit_ok) {
+-       printf("Error: You must specify a cpu limit\n");
+-       print_usage (stderr, 1);
+-       exit(1);
+-    }
+-
+-    float limit=perclimit/100.0;
+-    if (limit<0 || limit >1) {
+-       printf("Error: limit must be in the range 0-100\n");
+-       print_usage (stderr, 1);
+-       exit(1);
+-    }
+-
+-
+-    if (1 == logpath_ok ) {
+-        pLogFileFD = fopen(logpath,"a");
+-        if(NULL == pLogFileFD) {
+-            printf("Error: can not open/write logging path file\n");
+-            print_usage (stderr, 1);
+-            exit(1);
+-        }
+-
+-        fclose(pLogFileFD);
+-    }
+-
+-    //check live pid
+-    if(0 == isLivePID(pid)) {
+-        fprintf(stderr, "%d is not working, please first check pid\n", pid);
+-        exit(1);
+-    }
+-
+-    //check muti dun
+-    checkExistsRunOnSem();
+-
+-
+-    //time quantum in microseconds. it's splitted in a working period and a sleeping one
+-    unsigned int period=100000;
+-    struct timespec twork,tsleep;   //working and sleeping intervals
+-    memset(&twork,0,sizeof(struct timespec));
+-    memset(&tsleep,0,sizeof(struct timespec));
+-
+-    if(1 == daemonize) {
+-        setDaemonize();
+-        pid_me = (unsigned int)getpid();
+-    }
+-
+-    //set lock
+-    setRunOnSem();
+-
+-    fprintf(stdout,"TARGET:%d,ME:%d,LIMIT:%d\n",pid, pid_me,perclimit);
+-    fflush(stdout);
+-    close(1);//closeing stdout
+-
+-    setLogging("Starting TARGET:%d,ME:%d,LIMIT:%d",pid, pid_me,perclimit);
+-
+-    //parameters are all ok!
+-    signal(SIGINT,setQuit);
+-    signal(SIGTERM,setQuit);
+-    signal(SIGQUIT,setQuit);
+-    signal(SIGABRT,setQuit);
+-    signal(SIGKILL,setQuit);
+-
+-    setSyslog(LOG_INFO, "starting cpulimit / target pid : %d, limit : %d, lazy : %d, verbose : %d, logfile : %s", pid, perclimit, lazy, verbose, logpath);
+-
+-wait_for_process:
+-
+-    //look for the target process..or wait for it
+-    if (exe!=NULL)
+-        pid=getpidof(exe);
+-    else if (path!=NULL)
+-        pid=getpidof(path);
+-    else {
+-        waitforpid(pid);
+-    }
+-    //process detected...let's play
+-
+-    //init compute_cpu_usage internal stuff
+-    compute_cpu_usage(0,0,NULL);
+-    //main loop counter
+-    int i=0;
+-
+-    struct timespec startwork,endwork;
+-    long workingtime=0; //last working time in microseconds
+-
+-    if (verbose) print_caption();
+-
+-    float pcpu_avg=0;
+-
+-    //here we should already have high priority, for time precision
+-    while(1) {
+-
+-        //estimate how much the controlled process is using the cpu in its working interval
+-        struct cpu_usage cu;
+-        if (compute_cpu_usage(pid,workingtime,&cu)==-1) {
+-            setLogging("Process %d dead!",pid);
+-            if (lazy) setExit(2);
+-            //wait until our process appears
+-            goto wait_for_process;
+-        }
+-
+-        //cpu actual usage of process (range 0-1)
+-        float pcpu=cu.pcpu;
+-        //rate at which we are keeping active the process (range 0-1)
+-        float workingrate=cu.workingrate;
+-
+-        //adjust work and sleep time slices
+-        if (pcpu>0) {
+-            twork.tv_nsec=min(period*limit*1000/pcpu*workingrate,period*1000);
+-        } else if (pcpu==0) {
+-            twork.tv_nsec=period*1000;
+-        } else if (pcpu==-1) {
+-            //not yet a valid idea of cpu usage
+-            pcpu=limit;
+-            workingrate=limit;
+-            twork.tv_nsec=min(period*limit*1000,period*1000);
+-        }
+-
+-        tsleep.tv_nsec=period*1000-twork.tv_nsec;
+-
+-        //update average usage
+-        pcpu_avg=(pcpu_avg*i+pcpu)/(i+1);
+-
+-        if (verbose && i%10==0 && i>0) {
+-            setLogging("%0.2f%%\t%6ld us\t%6ld us\t%0.2f%%",pcpu*100,twork.tv_nsec/1000,tsleep.tv_nsec/1000,workingrate*100);
+-        }
+-
+-        if (limit<1 && limit>0) {
+-            //resume process
+-            if (kill(pid,SIGCONT)!=0) {
+-                setLogging("Process %d dead!",pid);
+-                if (lazy) setExit(2);
+-                //wait until our process appears
+-                goto wait_for_process;
+-            }
+-        }
+-
+-        clock_gettime(CLOCK_REALTIME,&startwork);
+-        nanosleep(&twork,NULL);         //now process is working
+-        clock_gettime(CLOCK_REALTIME,&endwork);
+-        workingtime=timediff(&endwork,&startwork);
+-
+-        if (limit<1) {
+-            //stop process, it has worked enough
+-            if (kill(pid,SIGSTOP)!=0) {
+-                setLogging("Process %d dead!",pid);
+-                if (lazy) setExit(2);
+-                //wait until our process appears
+-                goto wait_for_process;
+-            }
+-            nanosleep(&tsleep,NULL);        //now process is sleeping
+-        }
+-        i++;
+-    }
++	//argument variables
++	const char *exe = NULL;
++	int perclimit = 0;
++	int exe_ok = 0;
++	int pid_ok = 0;
++	int limit_ok = 0;
++	pid_t pid = 0;
++	int ignore_children = 0;
++
++	//get program name
++	char *p=(char*)memrchr(argv[0],(unsigned int)'/',strlen(argv[0]));
++	program_name = p==NULL?argv[0]:(p+1);
++	//get current pid
++	cpulimit_pid = getpid();
++	//get cpu count
++	NCPU = get_ncpu();
++
++	//parse arguments
++	int next_option;
++    int option_index = 0;
++	//A string listing valid short options letters
++	const char* short_options = "+p:e:l:vzih";
++	//An array describing valid long options
++	const struct option long_options[] = {
++		{ "pid",        required_argument, NULL, 'p' },
++		{ "exe",        required_argument, NULL, 'e' },
++		{ "limit",      required_argument, NULL, 'l' },
++		{ "verbose",    no_argument,       NULL, 'v' },
++		{ "lazy",       no_argument,       NULL, 'z' },
++		{ "ignore-children", no_argument,  NULL, 'i' },
++		{ "help",       no_argument,       NULL, 'h' },
++		{ 0,            0,                 0,     0  }
++	};
++
++	do {
++		next_option = getopt_long(argc, argv, short_options,long_options, &option_index);
++		switch(next_option) {
++			case 'p':
++				pid = atoi(optarg);
++				pid_ok = 1;
++				break;
++			case 'e':
++				exe = optarg;
++				exe_ok = 1;
++				break;
++			case 'l':
++				perclimit = atoi(optarg);
++				limit_ok = 1;
++				break;
++			case 'v':
++				verbose = 1;
++				break;
++			case 'z':
++				lazy = 1;
++				break;
++			case 'i':
++				ignore_children = 1;
++				break;
++			case 'h':
++				print_usage(stdout, 1);
++				break;
++			case '?':
++				print_usage(stderr, 1);
++				break;
++			case -1:
++				break;
++			default:
++				abort();
++		}
++	} while(next_option != -1);
++
++	if (pid_ok && (pid<=1 || pid>=65536)) {
++		fprintf(stderr,"Error: Invalid value for argument PID\n");
++		print_usage(stderr, 1);
++		exit(1);
++	}
++	if (pid!=0) {
++		lazy = 1;
++	}
++
++	if (!limit_ok) {
++		fprintf(stderr,"Error: You must specify a cpu limit percentage\n");
++		print_usage(stderr, 1);
++		exit(1);
++	}
++	double limit = perclimit/100.0;
++	if (limit<0 || limit >NCPU) {
++		fprintf(stderr,"Error: limit must be in the range 0-%d00\n", NCPU);
++		print_usage(stderr, 1);
++		exit(1);
++	}
++
++	int command_mode = optind<argc;
++	if (exe_ok + pid_ok + command_mode == 0) {
++		fprintf(stderr,"Error: You must specify one target process, either by name, pid, or command line\n");
++		print_usage(stderr, 1);
++		exit(1);
++	}
++	
++	if (exe_ok + pid_ok + command_mode > 1) {
++		fprintf(stderr,"Error: You must specify exactly one target process, either by name, pid, or command line\n");
++		print_usage(stderr, 1);
++		exit(1);
++	}
++
++	//all arguments are ok!
++	signal(SIGINT, quit);
++	signal(SIGTERM, quit);
++
++	//print the number of available cpu
++	if (verbose) printf("%d cpu detected\n", NCPU);
++
++#ifdef __linux__
++	if (!check_proc()) {
++		fprintf(stderr, "procfs is not mounted!\nAborting\n");
++		exit(-2);
++	}
++#endif
++
++	if (command_mode) {
++		int i;
++		//executable file
++		const char *cmd = argv[optind];
++		//command line arguments
++		char **cmd_args = (char**)malloc((argc-optind+1)*sizeof(char*));
++		if (cmd_args==NULL) exit(2);
++		for (i=0; i<argc-optind; i++) {
++			cmd_args[i] = argv[i+optind];
++		}
++		cmd_args[i] = NULL;
++
++		if (verbose) {
++			printf("Running command: '%s", cmd);
++			for (i=1; i<argc-optind; i++) {
++				printf(" %s", cmd_args[i]);
++			}
++			printf("'\n");
++		}
++		
++		int child = fork();
++		if (child < 0) {
++			exit(EXIT_FAILURE);
++		}
++		else if (child > 0) {
++			//parent code
++			int limiter = fork();
++			if (limiter < 0) {
++				exit(EXIT_FAILURE);
++			}
++			else if (limiter > 0) {
++				//parent
++				int status_process;
++				int status_limiter;
++				waitpid(child, &status_process, 0);
++				waitpid(limiter, &status_limiter, 0);
++				if (WIFEXITED(status_process)) {
++					if (verbose) printf("Process %d terminated with exit status %d\n", child, (int)WEXITSTATUS(status_process));
++					exit(WEXITSTATUS(status_process));
++				}
++				printf("Process %d terminated abnormally\n", child);
++				exit(status_process);
++			}
++			else {
++				//limiter code
++				if (verbose) printf("Limiting process %d\n",child);
++				limit_process(child, limit, ignore_children);
++				exit(0);
++			}
++		}
++		else {
++			//target process code
++			int ret = execvp(cmd, cmd_args);
++			//if we are here there was an error, show it
++			perror("Error");
++			exit(ret);
++		}
++	}
++
++	while(1) {
++		//look for the target process..or wait for it
++		pid_t ret = 0;
++		if (pid_ok) {
++			//search by pid
++			ret = look_for_process_by_pid(pid);
++			if (ret == 0) {
++				printf("No process found\n");
++			}
++			else if (ret < 0) {
++				printf("Process found but you aren't allowed to control it\n");
++			}
++		}
++		else {
++			//search by file or path name
++			ret = look_for_process_by_name(exe);
++			if (ret == 0) {
++				printf("No process found\n");
++			}
++			else if (ret < 0) {
++				printf("Process found but you aren't allowed to control it\n");
++			}
++			else {
++				pid = ret;
++			}
++		}
++		if (ret > 0) {
++			if (ret == cpulimit_pid) {
++				printf("Process %d is cpulimit itself! Aborting to avoid deadlock\n", ret);
++				exit(1);
++			}
++			printf("Process %d found\n", pid);
++			//control
++			limit_process(pid, limit, ignore_children);
++		}
++		if (lazy) break;
++		sleep(2);
++	};
++	
++	exit(0);
+ }
