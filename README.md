@@ -1,54 +1,64 @@
-cpulimit
-==============================
+# cpulimit
 
-This project is cpulimit original project forked and patched for vm cpu resource control
+---
+
+This project is CPULimit Patch for VM's CPU resource control,Forked from cpulimit project in sf.org
 See the this project based on CPULimit Project : http://cpulimit.sourceforge.net/
 
+```
+original cpulimit is written by Angelo Marletta.
+```
+
 ## How to Work
- * Monitoring Target process usage cpu resource (kernel time)
- * if target process cpu usage is 100% over, "STOP" signal send to target process
- * if target process cpu usage is 100% under, "CONTINUE" signal send to target process
- 
-## Patch Log
- * Support Daemonization
- * Support Detecting Multi CPU Limit working about same process
- * Support SysLog
- * Support make a full static binary for use on the multi platform
- * Support Some feature control command line options
- * Patched Hurge kernel time issue
- * Patched minor bug and issue
+
+* Monitoring Target process usage cpu resource (kernel time)
+* If target process cpu usage is 100% over, "STOP" signal send to target process
+* If target process cpu usage is 100% under, "CONTINUE" signal send to target process
+
+## List of Patches 
+
+* Support Daemonization
+* Support Detecting Multi CPU Limit working about same process
+* Support SysLog
+* Support make a full static binary for use on the multi platform
+* Support Some feature control command line options
+* Patched very long kernel time issue
+* Patched minor bug and issue
 
 ## Tested
- * Some hosting service using this for cpu usage limitation to high load kvm processor in vm hosting servers
- * CentOS(RHEL) 2 or higher
+
+* CentOS(RHEL) 2,3,4,6
+* Ubuntu
 
 ## Requirement
- * Linux (CentOS 4/5/6 Tested)
- * gcc 3.x or Higher (gcc 2.95 not tested)
- * glibc
- * gmake
- 
-## Preparing Compile
- * git clone https://torden@bitbucket.org/torden/cpulimit.git
- * cd cpulimit
- 
+
+* Linux
+* gcc 3.x or Higher (gcc 2.95 not tested)
+* glibc
+* gmake
+
+## Compile
+
 ### compile for production
- * gmake
+
+* gmake
+
 ```bash
-[root@localhost cpulimit]# gmake
+# gmake
 Removing Old files..
 /bin/rm -f *~ cpulimit
 Complete
 Normal mode compiling..
 /usr/bin/gcc -o cpulimit cpulimit.c -lrt -W -Wall -O2 -g -fomit-frame-pointer -funroll-loops
 Complete
-[root@localhost cpulimit]# 
 ```
 
 ### compile for debuging
- * gmake debug
+
+* gmake debug
+
 ```bash
-[root@localhost cpulimit]# gmake debug
+# gmake debug
 Set Debug mode enviroment..
         kernel.core_pattern=/tmp/%e.core.%u
         kernel.suid_dumpable=1
@@ -56,11 +66,9 @@ Set Debug mode enviroment..
         kernel.core_users_pid=1
 Complete
 Debug mode compiling..
-/usr/bin/gcc -o cpulimit cpulimit.c -lrt -g -pg -W -Wall -O2 -pipe -fprefetch-loop-arrays -ffast-math -fforce-addr -falign-functions=4 -funroll-loops
 Complete
-[root@localhost cpulimit]# 
 ```
- 
+
 
 ## Support Parameters
 
@@ -78,44 +86,50 @@ Usage: cpulimit TARGET [OPTIONS...]
       -h, --help         display this help and exit
       -d, --daemonize    damonization
       -f, --fore         force run, killing prevent process with forcing muti run lock
-      
+
 ```
+
 ### Madantory Parameters
- * -p or --pid=N : Target Process ID
- * -e or --exe=FILE : Executable Program File
- * -P or --path=PATH : Absolute Path anem of Excutable Program File
- * -L or --logpath : CPULImit logfile full path
- 
+
+* -p or --pid=N : Target Process ID
+* -L or --logpath : CPULImit logfile full path
+* -l N or --limit=N : CPU Allow max usage(0 to 100) default value is 100%
+
 ### Optional Parameters
- * -l N or --limit=N : CPU Allow max usage(0 to 100) default value is 100%
- * -v or --verbose : show control statistics
- * -z or --lazy : exit if there is no suitable target process or if it was die
- * -h or --help : display this help and exit
- * -d or --daemonize : damonization , if it not use, cpulimited using forground mode
- * -f or --force : forcing running mode , killing prevent process with forcing multiple run locking
- 
+
+* -e or --exe=FILE : Executable Program File
+* -P or --path=PATH : Absolute Path anem of Excutable Program File
+* -v or --verbose : show control statistics
+* -z or --lazy : exit if there is no suitable target process or if it was die
+* -h or --help : display this help and exit
+* -d or --daemonize : damonization , if it not use, cpulimited using forground mode
+* -f or --force : forcing running mode , killing prevent process with forcing multiple run locking
+
 ## How to Use
 
 ```bash
 ## find target process id
 # pgrep crond
-1226
+1234
 
 ## run
-# ./cpulimit -p 1126 -l 10 -L /tmp/cpulimit.crond.log -d
-1126 is not working, please first check pid
+# ./cpulimit -p 1234 -l 10 -L /tmp/cpulimit.crond.log -d
+1234 is not working, please first check pid
 
 ## force running when kill -9 `cpulimit` or after system shutdown or reboot or other
-# ./cpulimit -p 1226 -l 10 -L /tmp/cpulimit.crond.log -d 
-# ./cpulimit -p 1226 -l 10 -L /tmp/cpulimit.crond.log -d
+# ./cpulimit -p 1234 -l 10 -L /tmp/cpulimit.crond.log -d
+# ./cpulimit -p 1234 -l 10 -L /tmp/cpulimit.crond.log -d
 Another CPULimit daemon working.. (PID:1825), please first check it(1)
-# ./cpulimit -p 1226 -l 10 -L /tmp/cpulimit.crond.log -d -f
+# ./cpulimit -p 1234 -l 10 -L /tmp/cpulimit.crond.log -d -f
 
 # pgrep cpulimit
 1828
 
 # looking cpulimit log
-# tail /tmp/cpulimit.crond.log 
-[2013-12-03 15:07:04 KST] Starting TARGET:1226,ME:1825,LIMIT:10
-[2013-12-03 15:07:08 KST] Starting TARGET:1226,ME:1828,LIMIT:10
+# tail /tmp/cpulimit.crond.log
+[2013-12-03 15:07:08 KST] Starting TARGET:1234,ME:1828,LIMIT:10
 ```
+
+---
+
+Moved from bitbucket.org
