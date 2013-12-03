@@ -3,6 +3,7 @@
 ---
 
 This project is CPULimit Patch for VM's CPU resource control,Forked from cpulimit project in sf.org
+
 See the this project based on CPULimit Project : http://cpulimit.sourceforge.net/
 
 ```
@@ -53,7 +54,7 @@ Normal mode compiling..
 Complete
 ```
 
-### compile for debuging
+### compile for debugging
 
 * gmake debug
 
@@ -102,7 +103,7 @@ Usage: cpulimit TARGET [OPTIONS...]
 * -v or --verbose : show control statistics
 * -z or --lazy : exit if there is no suitable target process or if it was die
 * -h or --help : display this help and exit
-* -d or --daemonize : damonization , if it not use, cpulimited using forground mode
+* -d or --daemonize : damonization , if it does not use, cpulimited using foreground mode
 * -f or --force : forcing running mode , killing prevent process with forcing multiple run locking
 
 ## How to Use
