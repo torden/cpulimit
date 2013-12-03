@@ -94,3 +94,28 @@ Usage: cpulimit TARGET [OPTIONS...]
  * -d or --daemonize : damonization , if it not use, cpulimited using forground mode
  * -f or --force : forcing running mode , killing prevent process with forcing multiple run locking
  
+## How to Use
+
+```bash
+## find target process id
+# pgrep crond
+1226
+
+## run
+# ./cpulimit -p 1126 -l 10 -L /tmp/cpulimit.crond.log -d
+1126 is not working, please first check pid
+
+## force running when kill -9 `cpulimit` or after system shutdown or reboot or other
+# ./cpulimit -p 1226 -l 10 -L /tmp/cpulimit.crond.log -d 
+# ./cpulimit -p 1226 -l 10 -L /tmp/cpulimit.crond.log -d
+Another CPULimit daemon working.. (PID:1825), please first check it(1)
+# ./cpulimit -p 1226 -l 10 -L /tmp/cpulimit.crond.log -d -f
+
+# pgrep cpulimit
+1828
+
+# looking cpulimit log
+# tail /tmp/cpulimit.crond.log 
+[2013-12-03 15:07:04 KST] Starting TARGET:1226,ME:1825,LIMIT:10
+[2013-12-03 15:07:08 KST] Starting TARGET:1226,ME:1828,LIMIT:10
+```
