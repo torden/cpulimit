@@ -28,12 +28,41 @@ See the this project based on CPULimit Project : http://cpulimit.sourceforge.net
  * glibc
  * gmake
  
-## How to Compile
+## Preparing Compile
  * git clone https://torden@bitbucket.org/torden/cpulimit.git
  * cd cpulimit
- * gmake
  
-## Support Options
+### compile for production
+ * gmake
+```bash
+[root@localhost cpulimit]# gmake
+Removing Old files..
+/bin/rm -f *~ cpulimit
+Complete
+Normal mode compiling..
+/usr/bin/gcc -o cpulimit cpulimit.c -lrt -W -Wall -O2 -g -fomit-frame-pointer -funroll-loops
+Complete
+[root@localhost cpulimit]# 
+```
+
+### compile for debuging
+ * gmake debug
+```bash
+[root@localhost cpulimit]# gmake debug
+Set Debug mode enviroment..
+        kernel.core_pattern=/tmp/%e.core.%u
+        kernel.suid_dumpable=1
+        fs.suid_dumpable=1
+        kernel.core_users_pid=1
+Complete
+Debug mode compiling..
+/usr/bin/gcc -o cpulimit cpulimit.c -lrt -g -pg -W -Wall -O2 -pipe -fprefetch-loop-arrays -ffast-math -fforce-addr -falign-functions=4 -funroll-loops
+Complete
+[root@localhost cpulimit]# 
+```
+ 
+
+## Support Parameters
 
 ```bash
 Usage: cpulimit TARGET [OPTIONS...]
@@ -45,9 +74,23 @@ Usage: cpulimit TARGET [OPTIONS...]
    OPTIONS
       -l, --limit=N      percentage of cpu allowed from 0 to 100 (mandatory)
       -v, --verbose      show control statistics
-      -z, --lazy         exit if there is no suitable target process, or if it dies
+      -z, --lazy         exit if there is no suitable target process, or if it die
       -h, --help         display this help and exit
       -d, --daemonize    damonization
       -f, --fore         force run, killing prevent process with forcing muti run lock
       
 ```
+### Madantory Parameters
+ * -p or --pid=N : Target Process ID
+ * -e or --exe=FILE : Executable Program File
+ * -P or --path=PATH : Absolute Path anem of Excutable Program File
+ * -L or --logpath : CPULImit logfile full path
+ 
+### Optional Parameters
+ * -l N or --limit=N : CPU Allow max usage(0 to 100) default value is 100%
+ * -v or --verbose : show control statistics
+ * -z or --lazy : exit if there is no suitable target process or if it was die
+ * -h or --help : display this help and exit
+ * -d or --daemonize : damonization , if it not use, cpulimited using forground mode
+ * -f or --force : forcing running mode , killing prevent process with forcing multiple run locking
+ 
