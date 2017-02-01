@@ -1,7 +1,5 @@
 # cpulimit
 
----
-
 This project is CPULimit Patch for VM's CPU resource control,Forked from cpulimit project in sf.org
 
 See the this project based on CPULimit Project : http://cpulimit.sourceforge.net/
@@ -133,5 +131,6 @@ Another CPULimit daemon working.. (PID:1825), please first check it(1)
 
 ---
 
-Moved from bitbucket.org
-According to Original Project's License
+Moved from bitbucket.org.
+
+According to Original Project's License.
