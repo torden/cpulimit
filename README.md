@@ -1,5 +1,7 @@
 # cpulimit
 
+[![Build Status](https://travis-ci.org/torden/cpulimit.svg?branch=master)](https://travis-ci.org/torden/cpulimit)
+
 This project is CPULimit Patch for VM's CPU resource control,Forked from cpulimit project in sf.org
 
 See the this project based on CPULimit Project : http://cpulimit.sourceforge.net/
