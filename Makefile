@@ -25,7 +25,7 @@ debugcomp: cpulimit.c
 	@$(ECHO) "\033[1;40;36mComplete\033[01;m"
 
 clean:
-	@$(ECHO) "\033[1;40;32mRemoving Old files..\033[01;m"
+	@$(ECHO) "\033[1;40;32mRemoving Garbage Files..\033[01;m"
 	@$(CMD_RM) -f *~ cpulimit *.core *.swp
 	@$(ECHO) "\033[1;40;36mComplete\033[01;m"
 
