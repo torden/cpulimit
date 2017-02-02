@@ -2,29 +2,27 @@
 
 [![Build Status](https://travis-ci.org/torden/cpulimit.svg?branch=master)](https://travis-ci.org/torden/cpulimit)
 
-This project is CPULimit Patch for VM's CPU resource control,Forked from cpulimit project in sf.org
-
-See the this project based on CPULimit Project : http://cpulimit.sourceforge.net/
+This CPULimit Project is not Original. it does patched a few features based on CPULimit Project (v1.1) in sf.org
 
 ```
-original cpulimit is written by Angelo Marletta.
+cpulimit is written by Angelo Marletta. Thx Angelo, your project helped to my task
 ```
 
 ## How to Work
 
-* Monitoring Target process usage cpu resource (kernel time)
-* If target process cpu usage is 100% over, "STOP" signal send to target process
-* If target process cpu usage is 100% under, "CONTINUE" signal send to target process
+* Real-Time Monitoring the Target process's cpu resource usage (-p) (expressed in percentage, not in cpu time)
+* If target process cpu usage is over the limit (-l), "STOP" signal send to target process.
+* If target process cpu usage is under the limit (-l), "CONTINUE" signal send to stopped process.
 
 ## List of Patches 
 
 * Support Daemonization
-* Support Detecting Multi CPU Limit working about same process
-* Support SysLog
-* Support make a full static binary for use on the multi platform
-* Support Some feature control command line options
-* Patched very long kernel time issue
-* Patched minor bug and issue
+* Support Detecting Multiple CPU Limit working about same process
+* Support Logging to SysLog
+* Support Make a static binary for use on the multiple platform
+* Support Few features control by command line options
+* Patched very longer kernel time issue
+* Patched Minor bugs and Issue
 
 ## Tested
 
@@ -36,37 +34,46 @@ original cpulimit is written by Angelo Marletta.
 * Linux
 * gcc 3.x or Higher (gcc 2.95 not tested)
 * glibc
-* gmake
+* make
 
 ## Compile
 
-### compile for production
+### compile for generally
 
-* gmake
+* make
 
 ```bash
-# gmake
-Removing Old files..
-/bin/rm -f *~ cpulimit
+# make
+Removing Garbage Files..
 Complete
-Normal mode compiling..
-/usr/bin/gcc -o cpulimit cpulimit.c -lrt -W -Wall -O2 -g -fomit-frame-pointer -funroll-loops
+Normal compiling..
 Complete
 ```
 
-### compile for debugging
+### compile for generally
 
-* gmake debug
+* make static
 
 ```bash
-# gmake debug
-Set Debug mode enviroment..
-        kernel.core_pattern=/tmp/%e.core.%u
-        kernel.suid_dumpable=1
-        fs.suid_dumpable=1
-        kernel.core_users_pid=1
+Static compiling..
+Warnning..
+Caution : Binary likely not working on Kernel 4.8.0-30-generic / Glibc 2.24 under version..
 Complete
-Debug mode compiling..
+```
+
+
+### compile for debugging
+
+* make debug
+
+```bash
+Set Debug mode enviroment..
+    kernel.core_pattern=/tmp/%e.core.%u
+    kernel.suid_dumpable=1
+    fs.suid_dumpable=1
+    kernel.core_uses_pid=1
+Complete
+Debug compiling..
 Complete
 ```
 
@@ -136,3 +143,5 @@ Another CPULimit daemon working.. (PID:1825), please first check it(1)
 Moved from bitbucket.org.
 
 According to Original Project's License.
+
+See the this project based on CPULimit Project : http://cpulimit.sourceforge.net/
