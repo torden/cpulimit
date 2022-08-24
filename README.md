@@ -26,7 +26,7 @@ cpulimit is written by Angelo Marletta. Thx Angelo, your project helped to my ta
 
 ## Tested
 
-* CentOS(RHEL) 2,3,4,6
+* CnetOS(RHEL) 2, 3, 4, 6, 7, 8
 * Ubuntu
 
 ## Requirement
