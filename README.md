@@ -1,6 +1,7 @@
 # cpulimit
 
-[![Build Status](https://travis-ci.org/torden/cpulimit.svg?branch=master)](https://travis-ci.org/torden/cpulimit)
+[![Build Status](https://github.com/torden/cpulimit/actions/workflows/go.yml/badge.svg)](https://github.com/torden/cpulimit/actions)
+
 
 This CPULimit Project is not Original. it does patched a few features based on CPULimit Project (v1.1) in sf.org
 
