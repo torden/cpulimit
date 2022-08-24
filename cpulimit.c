@@ -459,7 +459,7 @@ long getjiffies(int pid) {
 
     fclose(f);
     char *p=buffer;
-    p=memchr(p+1,')',sizeof(buffer)-(p-buffer));
+    p=memchr(p+1,')',sizeof(buffer)-(p-buffer)-1);
 
     int sp=12;
     while (sp--)
