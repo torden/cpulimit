@@ -1,7 +1,7 @@
 # cpulimit
 
 [![Build Status](https://github.com/torden/cpulimit/actions/workflows/cpulimit.yml/badge.svg)](https://github.com/torden/cpulimit/actions)
-
+[![GitHub version](https://img.shields.io/github/v/release/torden/cpulimit)](https://github.com/torden/cpulimit)|
 
 This CPULimit Project is not Original. it does patched a few features based on CPULimit Project (v1.1) in sf.org
 
