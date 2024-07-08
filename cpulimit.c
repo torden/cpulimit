@@ -121,8 +121,12 @@ void checkExistsRunOnSem(void) {
         }
 
         if(0 < cpulimitPid && 0 == checkPid(cpulimitPid)) {       
-            sem_close(duplCheckSem);
+            if(duplCheckSem != NULL) {
+                sem_close(duplCheckSem);
+                duplCheckSem = NULL;
+            }
             sem_unlink(psemName);
+            memset(psemName, 0x00, sizeof semName);
             return;
         }
 
@@ -131,15 +135,22 @@ void checkExistsRunOnSem(void) {
                 fprintf(stdout, "System failure, Can not running with force mode, target pid : %d\n", cpulimitPid);
                 exit(1);
             } else {
-                sem_close(duplCheckSem);
+                if(duplCheckSem != NULL) {
+                    sem_close(duplCheckSem);
+                    duplCheckSem = NULL;
+                }
                 sem_unlink(psemName);
+                memset(psemName, 0x00, sizeof semName);
             }
         } else {
             fprintf(stdout, "Another CPULimit daemon working.. (PID:%d), please first check it(1)\n", cpulimitPid);
             exit(1);
         }
     } else {
-        sem_close(duplCheckSem);
+        if(duplCheckSem != NULL) {
+            sem_close(duplCheckSem);
+            duplCheckSem = NULL;
+        }
     }
 }
 
