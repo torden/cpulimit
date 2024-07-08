@@ -126,6 +126,7 @@ void checkExistsRunOnSem(void) {
                 duplCheckSem = NULL;
             }
             sem_unlink(psemName);
+            memset(psemName, 0x00, sizeof semName);
             return;
         }
 
@@ -139,6 +140,7 @@ void checkExistsRunOnSem(void) {
                     duplCheckSem = NULL;
                 }
                 sem_unlink(psemName);
+                memset(psemName, 0x00, sizeof semName);
             }
         } else {
             fprintf(stdout, "Another CPULimit daemon working.. (PID:%d), please first check it(1)\n", cpulimitPid);
