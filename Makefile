@@ -20,6 +20,26 @@ endif
 
 all:: clean cpulimit
 
+help:
+	@$(ECHO) "\033[1;40;33mAvailable targets:\033[0m"
+	@$(ECHO) "  \033[1;32mall\033[0m       - Build cpulimit (default target)"
+	@$(ECHO) "  \033[1;32mcpulimit\033[0m   - Build cpulimit binary"
+	@$(ECHO) "  \033[1;32mstatic\033[0m     - Build statically linked binary"
+	@$(ECHO) "  \033[1;32mdebug\033[0m      - Build with debug symbols"
+	@$(ECHO) "  \033[1;32mstrip\033[0m      - Strip symbols from binary"
+	@$(ECHO) "  \033[1;32mclean\033[0m      - Remove build artifacts"
+	@$(ECHO) "  \033[1;32mhelp\033[0m       - Display this help message"
+	@$(ECHO) ""
+	@$(ECHO) "\033[1;40;33mExamples:\033[0m"
+	@$(ECHO) "  \033[36mmake\033[0m            - Build cpulimit"
+	@$(ECHO) "  \033[36mmake static\033[0m      - Build static binary"
+	@$(ECHO) "  \033[36mmake debug\033[0m       - Build with debug info"
+	@$(ECHO) "  \033[36mmake clean\033[0m       - Clean build files"
+	@$(ECHO) ""
+	@$(ECHO) "\033[1;40;33mNotes:\033[0m"
+	@$(ECHO) "  - Static binary may not work on all systems"
+	@$(ECHO) "  - Debug mode requires root privileges for core dump settings"
+
 cpulimit: cpulimit.c
 	@$(ECHO) "\033[1;40;32mNormal compiling..\033[01;m"
 	@$(CMD_CC) -o $(BINARY_NAME) $< $(CFLAGS) -fomit-frame-pointer -funroll-loops 
