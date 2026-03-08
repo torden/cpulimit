@@ -99,10 +99,10 @@ unsigned short isLivePID(unsigned int ckpid) {
 short checkPid(unsigned int ckpid) {
 
     static char buf[128];
-    sprintf(buf,"/proc/%d/stat",ckpid);
+    snprintf(buf, sizeof(buf), "/proc/%d/stat", ckpid);
 
     if(-1 != access(buf, F_OK)) {
-        return 1; 
+        return 1;
     } else {
         return 0;
     }
@@ -114,9 +114,10 @@ void checkExistsRunOnSem(void) {
     snprintf(psemName, sizeof semName, "%s_%d", MUTI_RUN_DETECT_PREFIX_SEM_NAME, pid);
     duplCheckSem = sem_open(psemName, O_RDONLY);
     if(SEM_FAILED != duplCheckSem) {
-        sem_getvalue(duplCheckSem, &cpulimitPid);
-        if(0 == cpulimitPid) {
-            fprintf(stdout, "System failure, Can not read named sem : %s\n", psemName);
+        if(-1 == sem_getvalue(duplCheckSem, &cpulimitPid)) {
+            fprintf(stdout, "System failure, Can not read named sem : %s - %s\n", psemName, strerror(errno));
+            sem_close(duplCheckSem);
+            duplCheckSem = NULL;
             exit(1);
         }
 
@@ -171,8 +172,13 @@ void setRunOnSem(void) {
 }
 
 void destroyExstsRunOnSem(void) {
-    sem_close(duplCheckSem);
-    sem_unlink(psemName);
+    if (duplCheckSem != NULL && duplCheckSem != SEM_FAILED) {
+        sem_close(duplCheckSem);
+        duplCheckSem = SEM_FAILED;
+    }
+    if (psemName[0] != '\0') {
+        sem_unlink(psemName);
+    }
 }
 void setDaemonize() {
 
@@ -454,9 +460,9 @@ void setQuit(int sig) {
 
 //get jiffies count from /proc filesystem
 long getjiffies(int pid) {
-    static char stat[20];
+    static char stat[32];
     static char buffer[1024];
-    sprintf(stat,"/proc/%d/stat",pid);
+    snprintf(stat, sizeof(stat), "/proc/%d/stat", pid);
     FILE *f=fopen(stat,"r");
     if (f==NULL) {
         setLogging("Can not open /proc/%d/stat", pid);
@@ -465,19 +471,33 @@ long getjiffies(int pid) {
 
     if(fgets(buffer,sizeof(buffer),f) == NULL) {
         setLogging("Can not read /proc/%d/stat", pid);
+        fclose(f);
         return -1;
     }
 
     fclose(f);
     char *p=buffer;
     p=memchr(p+1,')',sizeof(buffer)-(p-buffer)-1);
+    if (p == NULL) {
+        setLogging("Invalid /proc/%d/stat format (no ')')", pid);
+        return -1;
+    }
 
     int sp=12;
-    while (sp--)
-            p=memchr(p+1,' ',sizeof(buffer)-(p-buffer));
+    while (sp--) {
+        p=memchr(p+1,' ',sizeof(buffer)-(p-buffer));
+        if (p == NULL) {
+            setLogging("Invalid /proc/%d/stat format (missing field)", pid);
+            return -1;
+        }
+    }
     //user mode jiffies
     long utime=atol(p+1);
     p=memchr(p+1,' ',sizeof(buffer)-(p-buffer));
+    if (p == NULL) {
+        setLogging("Invalid /proc/%d/stat format (ktime field)", pid);
+        return -1;
+    }
     //kernel mode jiffies
     long ktime=atol(p+1);
     return utime+ktime;
@@ -576,7 +596,7 @@ void print_usage(FILE *stream,int exit_code) {
     fprintf(stream, "      -z, --lazy         exit if there is no suitable target process, or if it dies\n");
     fprintf(stream, "      -h, --help         display this help and exit\n");
     fprintf(stream, "      -d, --daemonize    damonization\n");
-    fprintf(stream, "      -f, --fore         force run, killing prevent process with forcing muti run lock\n");
+    fprintf(stream, "      -f, --force        force run, killing prevent process with forcing muti run lock\n");
     exit(exit_code);
 }
 
@@ -720,17 +740,17 @@ int main(int argc, char **argv) {
     //check muti dun
     checkExistsRunOnSem();
 
+    pid_me = (unsigned int)getpid();
+    if(1 == daemonize) {
+        setDaemonize();
+        pid_me = (unsigned int)getpid();
+    }
 
     //time quantum in microseconds. it's splitted in a working period and a sleeping one
     unsigned int period=100000;
     struct timespec twork,tsleep;   //working and sleeping intervals
     memset(&twork,0,sizeof(struct timespec));
     memset(&tsleep,0,sizeof(struct timespec));
-
-    if(1 == daemonize) {
-        setDaemonize();
-        pid_me = (unsigned int)getpid();
-    }
 
     //set lock
     setRunOnSem();
@@ -746,7 +766,7 @@ int main(int argc, char **argv) {
     signal(SIGTERM,setQuit);
     signal(SIGQUIT,setQuit);
     signal(SIGABRT,setQuit);
-    signal(SIGKILL,setQuit);
+    // Note: SIGKILL cannot be caught - removed signal(SIGKILL,setQuit);
 
     setSyslog(LOG_INFO, "starting cpulimit / target pid : %d, limit : %d, lazy : %d, verbose : %d, logfile : %s", pid, perclimit, lazy, verbose, logpath);
 
